@@ -287,7 +287,8 @@ async function startGame() {
 }
 
 function copyRoomCode() {
-  navigator.clipboard.writeText(state.roomCode).then(() => {
+  const link = `https://zzzarkaztik.github.io/clash-rps/${state.roomCode}`;
+  navigator.clipboard.writeText(link).then(() => {
     const el = document.querySelector(".copy-hint");
     el.textContent = "copied! ✓";
     setTimeout(() => (el.textContent = "click to copy"), 1500);
@@ -732,6 +733,15 @@ async function adminEndRoom() {
 }
 
 // ─── Init ──────────────────────────────────────────────────────
+
+// Auto-fill room code if URL contains one e.g. /clash-rps/XK9A
+(function () {
+  const parts = window.location.pathname.split("/").filter(Boolean);
+  const last = parts[parts.length - 1];
+  if (last && /^[A-Z0-9]{4}$/.test(last.toUpperCase())) {
+    document.getElementById("join-code").value = last.toUpperCase();
+  }
+})();
 
 // Check if already logged in as admin on page load
 account
