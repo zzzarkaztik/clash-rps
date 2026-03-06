@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>CLASH — Rock Paper Scissors</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/appwrite@14.0.1/dist/iife/sdk.js"></script>
+</head>
+<body>
+
+<div class="app">
+  <header>
+    <div class="logo">CLASH</div>
+    <div class="tagline">Rock · Paper · Scissors · Multiplayer</div>
+  </header>
+
+  <!-- SCREEN: Home -->
+  <div id="screen-home" class="screen active">
+    <div class="card">
+      <div class="card-title">Enter Arena</div>
+      <div class="field">
+        <label>Your Name</label>
+        <input type="text" id="player-name" placeholder="Enter your name..." maxlength="16"/>
+      </div>
+      <button class="btn btn-primary" onclick="goToLobby()">Continue →</button>
+    </div>
+    <div class="text-center mt-2">
+      <button class="btn btn-ghost" style="width:auto;" onclick="showScreen('screen-admin-login')">Admin ⚙️</button>
+    </div>
+  </div>
+
+  <!-- SCREEN: Lobby -->
+  <div id="screen-lobby" class="screen">
+    <div class="back-row">
+      <button class="btn btn-ghost" onclick="goHome()">← Back</button>
+      <span class="text-muted">Playing as: <strong id="display-name-lobby"></strong></span>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Create Room</div>
+      <p class="text-muted" style="margin-bottom:1rem;">Start a new game and share the code with a friend.</p>
+      <button class="btn btn-primary" onclick="createRoom()">Create New Room</button>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Join Room</div>
+      <div class="field">
+        <label>Room Code</label>
+        <input type="text" id="join-code" placeholder="e.g. XK9A" maxlength="4" style="text-transform:uppercase; letter-spacing:0.3em; font-size:1.2rem;"/>
+      </div>
+      <button class="btn btn-secondary" onclick="joinRoom()">Join Room</button>
+    </div>
+
+    <div id="lobby-msg" class="message" style="display:none;"></div>
+  </div>
+
+  <!-- SCREEN: Waiting Room -->
+  <div id="screen-waiting" class="screen">
+    <div class="back-row">
+      <button class="btn btn-ghost" onclick="leaveRoom()">← Leave</button>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Waiting Room</div>
+
+      <div class="room-code-display" onclick="copyRoomCode()">
+        <div class="room-code-label">Room Code</div>
+        <div class="room-code-value" id="waiting-code">----</div>
+        <div class="copy-hint">click to copy</div>
+      </div>
+
+      <div class="players-list" id="players-list"></div>
+
+      <div id="waiting-status" class="status-bar">
+        <div class="status-dot waiting"></div>
+        <span>Waiting for opponent to join...</span>
+      </div>
+
+      <button id="btn-start" class="btn btn-primary" onclick="startGame()" style="display:none;">Start Game ⚔️</button>
+    </div>
+  </div>
+
+  <!-- SCREEN: Game -->
+  <div id="screen-game" class="screen">
+    <div class="back-row">
+      <button class="btn btn-ghost" onclick="leaveRoom()">← Leave</button>
+      <span class="text-muted" id="game-round-label">Round 1</span>
+    </div>
+
+    <div class="card">
+      <div class="score-row">
+        <div class="score-item">
+          <div class="score-num" id="score-you">0</div>
+          <div class="score-name" id="score-you-name">You</div>
+        </div>
+        <div class="score-divider">—</div>
+        <div class="score-item">
+          <div class="score-num" id="score-opp">0</div>
+          <div class="score-name" id="score-opp-name">Opponent</div>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="arena">
+        <div class="arena-player">
+          <div class="arena-choice" id="arena-you">🤔</div>
+          <div class="arena-name">You</div>
+        </div>
+        <div class="arena-vs">VS</div>
+        <div class="arena-player">
+          <div class="arena-choice hidden" id="arena-opp">❓</div>
+          <div class="arena-name" id="arena-opp-name">Waiting...</div>
+        </div>
+      </div>
+
+      <div id="choice-section">
+        <div id="game-status" class="status-bar">
+          <div class="status-dot waiting"></div>
+          <span>Make your choice!</span>
+        </div>
+
+        <div class="choices">
+          <button class="choice-btn" data-choice="rock" onclick="makeChoice('rock')">
+            <span class="choice-emoji">✊</span>
+            <span>Rock</span>
+          </button>
+          <button class="choice-btn" data-choice="paper" onclick="makeChoice('paper')">
+            <span class="choice-emoji">✋</span>
+            <span>Paper</span>
+          </button>
+          <button class="choice-btn" data-choice="scissors" onclick="makeChoice('scissors')">
+            <span class="choice-emoji">✌️</span>
+            <span>Scissors</span>
+          </button>
+        </div>
+      </div>
+
+      <div id="result-section" style="display:none;">
+        <div id="result-display" class="result-display">
+          <div class="result-title" id="result-title">—</div>
+          <div class="result-sub" id="result-sub"></div>
+        </div>
+        <div class="gap-row mt-2">
+          <button class="btn btn-primary" onclick="nextRound()">Next Round ▶</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════ -->
+  <!-- ADMIN SCREENS                                   -->
+  <!-- ═══════════════════════════════════════════════ -->
+
+  <!-- SCREEN: Admin Login -->
+  <div id="screen-admin-login" class="screen">
+    <div class="back-row">
+      <button class="btn btn-ghost" onclick="showScreen('screen-home')">← Back</button>
+    </div>
+
+    <div class="card admin-card">
+      <div class="admin-badge">ADMIN ACCESS</div>
+      <div class="card-title">Admin Login</div>
+      <p class="text-muted" style="margin-bottom:1.25rem;">Sign in with your Appwrite admin account.</p>
+
+      <div class="field">
+        <label>Email</label>
+        <input type="text" id="admin-email" placeholder="admin@example.com"/>
+      </div>
+      <div class="field">
+        <label>Password</label>
+        <input type="text" id="admin-password" placeholder="••••••••" style="-webkit-text-security: disc;"/>
+      </div>
+
+      <div id="admin-login-msg" class="message" style="display:none;"></div>
+      <button class="btn btn-admin" onclick="adminLogin()">Sign In →</button>
+    </div>
+  </div>
+
+  <!-- SCREEN: Admin Dashboard -->
+  <div id="screen-admin" class="screen">
+    <div class="back-row">
+      <button class="btn btn-ghost" onclick="adminLogout()">← Logout</button>
+      <span class="admin-badge" style="margin-left:auto;">ADMIN</span>
+    </div>
+
+    <div class="card admin-card">
+      <div class="admin-dash-header">
+        <div class="card-title" style="margin-bottom:0;">Active Rooms</div>
+        <button class="btn btn-ghost" style="margin-top:0;" onclick="adminRefreshRooms()">↻ Refresh</button>
+      </div>
+
+      <div id="admin-status" class="status-bar" style="margin-top:1rem;">
+        <div class="status-dot waiting"></div>
+        <span>Loading rooms...</span>
+      </div>
+
+      <div id="admin-rooms-list"></div>
+    </div>
+  </div>
+
+  <!-- SCREEN: Admin Spectate -->
+  <div id="screen-spectate" class="screen">
+    <div class="back-row">
+      <button class="btn btn-ghost" onclick="stopSpectating()">← Back to Dashboard</button>
+      <span class="admin-badge" style="margin-left:auto;">SPECTATING</span>
+    </div>
+
+    <div class="card admin-card">
+      <div class="card-title" id="spectate-title">Room ----</div>
+
+      <div class="score-row">
+        <div class="score-item">
+          <div class="score-num" id="spectate-score1">0</div>
+          <div class="score-name" id="spectate-name1">Player 1</div>
+        </div>
+        <div class="score-divider">—</div>
+        <div class="score-item">
+          <div class="score-num" id="spectate-score2">0</div>
+          <div class="score-name" id="spectate-name2">Player 2</div>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="arena">
+        <div class="arena-player">
+          <div class="arena-choice" id="spectate-choice1">🤔</div>
+          <div class="arena-name" id="spectate-label1">Player 1</div>
+        </div>
+        <div class="arena-vs">VS</div>
+        <div class="arena-player">
+          <div class="arena-choice" id="spectate-choice2">🤔</div>
+          <div class="arena-name" id="spectate-label2">Player 2</div>
+        </div>
+      </div>
+
+      <div id="spectate-status" class="status-bar">
+        <div class="status-dot live"></div>
+        <span id="spectate-status-text">Watching live...</span>
+      </div>
+
+      <!-- Moves table -->
+      <div class="card-title" style="margin-top:1rem; font-size:1rem;">Round Moves</div>
+      <div id="spectate-moves" class="moves-table"></div>
+
+      <div class="divider"></div>
+      <button class="btn btn-danger" onclick="adminEndRoom()">⛔ Force End Room</button>
+    </div>
+  </div>
+
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
