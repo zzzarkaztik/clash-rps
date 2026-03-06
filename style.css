@@ -710,6 +710,7 @@ input[type="text"]::placeholder {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  margin-bottom: 0.5 rem;
 }
 
 /* Room rows in admin dashboard */
