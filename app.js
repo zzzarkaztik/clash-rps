@@ -501,6 +501,10 @@ async function adminLogin() {
   btn.textContent = "Signing in...";
 
   try {
+    // Clear any lingering session before creating a new one
+    try {
+      await account.deleteSession("current");
+    } catch (_) {}
     admin.session = await account.createEmailPasswordSession(email, password);
     btn.textContent = "Sign In →";
     btn.disabled = false;
