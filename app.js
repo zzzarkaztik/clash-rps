@@ -536,7 +536,7 @@ async function adminRefreshRooms() {
   try {
     const res = await databases.listDocuments(DATABASE_ID, ROOMS_COLLECTION, [Query.orderDesc("$createdAt"), Query.limit(50)]);
 
-    const rooms = res.documents.filter((r) => r.status !== "abandoned");
+    const rooms = res.documents;
 
     statusEl.style.display = "none";
 
