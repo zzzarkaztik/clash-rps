@@ -29,6 +29,7 @@
               maxlength="16"
               onkeydown="if (event.key === 'Enter') goToLobby();" />
           </div>
+          <div id="home-msg" class="message" style="display: none"></div>
           <button class="btn btn-primary" onclick="goToLobby()">Continue →</button>
         </div>
         <div class="text-center mt-2" style="display: flex; gap: 0.75rem; justify-content: center">
@@ -90,6 +91,7 @@
             <span>Waiting for opponent to join...</span>
           </div>
 
+          <div id="waiting-msg" class="message" style="display: none"></div>
           <button id="btn-start" class="btn btn-primary" onclick="startGame()" style="display: none">Start Game ⚔️</button>
         </div>
       </div>
@@ -317,6 +319,7 @@
           </div>
 
           <div id="admin-rooms-list"></div>
+          <div id="admin-msg" class="message" style="display: none"></div>
         </div>
       </div>
 
@@ -365,6 +368,7 @@
           <div class="card-title" style="margin-top: 1rem; font-size: 1rem">Round Moves</div>
           <div id="spectate-moves" class="moves-table"></div>
 
+          <div id="spectate-msg" class="message" style="display: none"></div>
           <div class="divider"></div>
           <button class="btn btn-danger" onclick="adminEndRoom()">⛔ Force End Room</button>
         </div>

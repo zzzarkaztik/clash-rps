@@ -12,8 +12,10 @@ const MOVES_COLLECTION = "moves";
     - code        (string, size 4, required)
     - player1     (string, size 64)
     - player2     (string, size 64)
-    - player1id   (string, size 64)
-    - player2id   (string, size 64)
+    - player1id      (string, size 64)
+    - player1session  (string, size 64)  ← NEW: per-tab session token
+    - player2id      (string, size 64)
+    - player2session  (string, size 64)  ← NEW: per-tab session token
     - status      (string, size 32, default: "waiting")
     - score1      (integer, default: 0)
     - score2      (integer, default: 0)
@@ -48,6 +50,8 @@ const account = new Account(client);
 let state = {
   playerName: "",
   playerId: localStorage.getItem("clash_pid") || ID.unique(),
+  // sessionId is per-tab (sessionStorage). Used to detect duplicate tabs.
+  sessionId: sessionStorage.getItem("clash_sid") || ID.unique(),
   roomCode: null,
   roomDocId: null,
   isPlayer1: false,
@@ -66,6 +70,7 @@ let state = {
 };
 
 localStorage.setItem("clash_pid", state.playerId);
+sessionStorage.setItem("clash_sid", state.sessionId);
 
 // ─── Admin State ───────────────────────────────────────────────
 
@@ -99,7 +104,7 @@ function goHome() {
 function goToLobby() {
   const name = document.getElementById("player-name").value.trim();
   if (!name) {
-    alert("Enter your name first!");
+    showMsg("home-msg", "Enter your name first!", "error");
     return;
   }
   state.playerName = name;
@@ -125,8 +130,10 @@ async function createRoom() {
       code,
       player1: state.playerName,
       player1id: state.playerId,
+      player1session: state.sessionId,
       player2: "",
       player2id: "",
+      player2session: "",
       status: "waiting",
       score1: 0,
       score2: 0,
@@ -166,6 +173,11 @@ async function joinRoom() {
     }
 
     if (room.player1id === state.playerId) {
+      // Duplicate tab check: session must match what's on the room doc
+      if (room.player1session && room.player1session !== state.sessionId) {
+        showMsg("lobby-msg", "⚠️ You already have this room open in another tab.", "error");
+        return;
+      }
       state.roomCode = code;
       state.roomDocId = room.$id;
       state.isPlayer1 = true;
@@ -175,14 +187,27 @@ async function joinRoom() {
       return;
     }
 
-    if (room.player2 && room.player2id !== state.playerId) {
+    if (room.player2id === state.playerId) {
+      // Same player trying to rejoin as p2 — check session
+      if (room.player2session && room.player2session !== state.sessionId) {
+        showMsg("lobby-msg", "⚠️ You already have this room open in another tab.", "error");
+        return;
+      }
+    } else if (room.player2 && room.player2id !== state.playerId) {
       showMsg("lobby-msg", "Room is full!", "error");
+      return;
+    }
+
+    // Name clash check — cannot have the same name as the host
+    if (room.player1 && room.player1.trim().toLowerCase() === state.playerName.trim().toLowerCase()) {
+      showMsg("lobby-msg", "⚠️ That name is already taken in this room. Choose a different name.", "error");
       return;
     }
 
     await databases.updateDocument(DATABASE_ID, ROOMS_COLLECTION, room.$id, {
       player2: state.playerName,
       player2id: state.playerId,
+      player2session: state.sessionId,
     });
 
     state.roomCode = code;
@@ -292,7 +317,7 @@ async function startGame() {
       status: "playing",
     });
   } catch (e) {
-    alert("Could not start game: " + e.message);
+    showMsg("waiting-msg", "Could not start game: " + e.message, "error");
   }
 }
 
@@ -1137,7 +1162,7 @@ async function adminDeleteRoom(roomId, code) {
     });
     adminRefreshRooms();
   } catch (e) {
-    alert("Failed to end room: " + e.message);
+    showMsg("admin-msg", "Failed to end room: " + e.message, "error");
   }
 }
 
@@ -1153,7 +1178,7 @@ async function adminSpectate(roomId) {
     showScreen("screen-spectate");
     subscribeSpectate(roomId);
   } catch (e) {
-    alert("Could not load room: " + e.message);
+    showMsg("admin-msg", "Could not load room: " + e.message, "error");
   }
 }
 
@@ -1276,7 +1301,7 @@ async function adminEndRoom() {
     });
     stopSpectating();
   } catch (e) {
-    alert("Failed: " + e.message);
+    showMsg("spectate-msg", "Failed: " + e.message, "error");
   }
 }
 
