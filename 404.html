@@ -22,7 +22,12 @@
           <div class="card-title">Enter Arena</div>
           <div class="field">
             <label>Your Name</label>
-            <input type="text" id="player-name" placeholder="Enter your name..." maxlength="16" />
+            <input
+              type="text"
+              id="player-name"
+              placeholder="Enter your name..."
+              maxlength="16"
+              onkeydown="if (event.key === 'Enter') goToLobby();" />
           </div>
           <button class="btn btn-primary" onclick="goToLobby()">Continue →</button>
         </div>
@@ -53,7 +58,8 @@
               id="join-code"
               placeholder="e.g. XK9A"
               maxlength="4"
-              style="text-transform: uppercase; letter-spacing: 0.3em; font-size: 1.2rem" />
+              style="text-transform: uppercase; letter-spacing: 0.3em; font-size: 1.2rem"
+              onkeydown="if (event.key === 'Enter') joinRoom();" />
           </div>
           <button class="btn btn-secondary" onclick="joinRoom()">Join Room</button>
         </div>
@@ -172,11 +178,20 @@
 
           <div class="field">
             <label>Email</label>
-            <input type="text" id="admin-email" placeholder="admin@example.com" />
+            <input
+              type="text"
+              id="admin-email"
+              placeholder="admin@example.com"
+              onkeydown="if (event.key === 'Enter') document.getElementById('admin-password').focus();" />
           </div>
           <div class="field">
             <label>Password</label>
-            <input type="text" id="admin-password" placeholder="••••••••" style="-webkit-text-security: disc" />
+            <input
+              type="text"
+              id="admin-password"
+              placeholder="••••••••"
+              style="-webkit-text-security: disc"
+              onkeydown="if (event.key === 'Enter') adminLogin();" />
           </div>
 
           <div id="admin-login-msg" class="message" style="display: none"></div>

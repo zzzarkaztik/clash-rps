@@ -211,9 +211,10 @@ input[type="text"]::placeholder {
   margin-top: 0.5rem;
 }
 
-.btn:hover {
+/* .btn:hover {
   transform: translateY(-1px);
-}
+} */
+
 .btn:active {
   transform: translateY(0);
   opacity: 0.85;
@@ -227,16 +228,38 @@ input[type="text"]::placeholder {
 .btn-primary {
   background: var(--accent);
   color: white;
+  border: 1px solid transparent;
 }
+
+.btn-primary:hover {
+  background: none;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+}
+
 .btn-secondary {
   background: transparent;
   color: var(--accent2);
   border: 1px solid var(--accent2);
 }
+
+.btn-secondary:hover {
+  background: var(--accent2);
+  color: black;
+  border-color: var(--accent2);
+}
+
 .btn-admin {
   background: var(--admin);
   color: #0a0a0f;
 }
+
+.btn-admin:hover {
+  background: transparent;
+  color: var(--admin);
+  border: 1px solid var(--admin);
+}
+
 .btn-danger {
   background: transparent;
   color: var(--danger);
@@ -251,6 +274,11 @@ input[type="text"]::placeholder {
   padding: 0.5rem 1rem;
   width: auto;
   margin-top: 0;
+}
+
+.btn-ghost:hover {
+  background: var(--admin);
+  color: white;
 }
 
 /* Room code display */

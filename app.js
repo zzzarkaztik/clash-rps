@@ -54,6 +54,7 @@ let state = {
   myChoice: null,
   opponentName: "",
   score: { me: 0, opp: 0 },
+  roundResolved: false,
   realtimeUnsub: null,
   waitingUnsub: null,
 };
@@ -327,6 +328,7 @@ function resetChoiceUI() {
     b.classList.remove("selected");
     b.disabled = false;
   });
+  state.roundResolved = false;
   document.getElementById("game-status").innerHTML = `<div class="status-dot waiting"></div><span>Make your choice!</span>`;
 }
 
@@ -398,6 +400,9 @@ async function checkBothMoves() {
 }
 
 function resolveRound(myChoice, oppChoice) {
+  if (state.roundResolved) return;
+  state.roundResolved = true;
+
   document.getElementById("arena-opp").textContent = EMOJI[oppChoice];
   document.getElementById("arena-opp").className = "arena-choice";
 
