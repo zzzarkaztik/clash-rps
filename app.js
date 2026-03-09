@@ -57,6 +57,9 @@ let state = {
   roundResolved: false,
   realtimeUnsub: null,
   waitingUnsub: null,
+  roomWatchUnsub: null, // watches for opponent leaving
+  countdownInterval: null,
+  countdownStart: null,
 };
 
 localStorage.setItem("clash_pid", state.playerId);
@@ -311,6 +314,7 @@ function enterGame() {
   resetChoiceUI();
   showScreen("screen-game");
   subscribeGame();
+  subscribeRoomWatch();
 }
 
 function updateScoreDisplay() {
@@ -344,6 +348,8 @@ async function makeChoice(choice) {
   document.getElementById("game-status").innerHTML =
     `<div class="status-dot waiting"></div><span>Waiting for opponent <span class="waiting-dots"><span>.</span><span>.</span><span>.</span></span></span>`;
 
+  startRoundCountdown();
+
   const playerId = state.playerId;
   const round = state.currentRound;
 
@@ -368,16 +374,81 @@ async function makeChoice(choice) {
   }
 }
 
-function subscribeGame() {
-  if (state.realtimeUnsub) state.realtimeUnsub();
+// ─── Round Countdown ───────────────────────────────────────────
 
-  state.realtimeUnsub = client.subscribe(`databases.${DATABASE_ID}.collections.${MOVES_COLLECTION}.documents`, async ({ payload }) => {
-    if (!payload) return;
-    if (payload.room?.$id !== state.roomDocId) return;
-    if (payload.round !== state.currentRound) return;
-    await checkBothMoves();
+const ROUND_COUNTDOWN_SECS = 10;
+
+function startRoundCountdown() {
+  stopRoundCountdown();
+  state.countdownStart = Date.now();
+  let remaining = ROUND_COUNTDOWN_SECS;
+
+  function tick() {
+    if (state.roundResolved) {
+      stopRoundCountdown();
+      return;
+    }
+    const elapsed = Math.floor((Date.now() - state.countdownStart) / 1000);
+    remaining = ROUND_COUNTDOWN_SECS - elapsed;
+    if (remaining < 0) remaining = 0;
+
+    const statusEl = document.getElementById("game-status");
+    if (statusEl) {
+      statusEl.innerHTML = `<div class="status-dot waiting"></div><span>Waiting for opponent &nbsp;<span class="countdown-badge ${remaining <= 3 ? "urgent" : ""}">${remaining}s</span></span>`;
+    }
+
+    if (remaining <= 0) {
+      stopRoundCountdown();
+    }
+  }
+
+  tick();
+  state.countdownInterval = setInterval(tick, 500);
+}
+
+function stopRoundCountdown() {
+  if (state.countdownInterval) {
+    clearInterval(state.countdownInterval);
+    state.countdownInterval = null;
+  }
+}
+
+// ─── Opponent Left Banner ──────────────────────────────────────
+
+function showOpponentLeftBanner(name) {
+  stopRoundCountdown();
+  const statusEl = document.getElementById("game-status");
+  if (statusEl) {
+    statusEl.innerHTML = `<div class="status-dot done"></div><span class="opponent-left-text">😢 ${name || "Your opponent"} left the game</span>`;
+    statusEl.classList.add("status-abandoned");
+  }
+  // Disable choice buttons if still showing
+  document.querySelectorAll(".choice-btn").forEach((b) => {
+    b.disabled = true;
   });
 }
+
+function subscribeRoomWatch() {
+  if (state.roomWatchUnsub) state.roomWatchUnsub();
+  state.roomWatchUnsub = client.subscribe(
+    `databases.${DATABASE_ID}.collections.${ROOMS_COLLECTION}.documents.${state.roomDocId}`,
+    ({ payload }) => {
+      if (!payload) return;
+      if (payload.status === "abandoned" && state.roomDocId) {
+        showOpponentLeftBanner(state.opponentName);
+      }
+    },
+  );
+}
+
+if (state.realtimeUnsub) state.realtimeUnsub();
+
+state.realtimeUnsub = client.subscribe(`databases.${DATABASE_ID}.collections.${MOVES_COLLECTION}.documents`, async ({ payload }) => {
+  if (!payload) return;
+  if (payload.room?.$id !== state.roomDocId) return;
+  if (payload.round !== state.currentRound) return;
+  await checkBothMoves();
+});
 
 async function checkBothMoves() {
   try {
@@ -402,6 +473,7 @@ async function checkBothMoves() {
 function resolveRound(myChoice, oppChoice) {
   if (state.roundResolved) return;
   state.roundResolved = true;
+  stopRoundCountdown();
 
   document.getElementById("arena-opp").textContent = EMOJI[oppChoice];
   document.getElementById("arena-opp").className = "arena-choice";
@@ -485,6 +557,309 @@ function cleanup() {
     state.waitingUnsub();
     state.waitingUnsub = null;
   }
+  if (state.roomWatchUnsub) {
+    state.roomWatchUnsub();
+    state.roomWatchUnsub = null;
+  }
+  stopRoundCountdown();
+}
+
+// ══════════════════════════════════════════════════════════════
+//  PUBLIC SPECTATOR
+// ══════════════════════════════════════════════════════════════
+
+let spectator = {
+  roomId: null,
+  roomDoc: null,
+  currentRound: 1,
+  roundResolved: false,
+  roomUnsub: null,
+  movesUnsub: null,
+  countdownInterval: null,
+  countdownStarted: false,
+};
+
+function startSpectatorCountdown() {
+  if (spectator.countdownStarted) return;
+  spectator.countdownStarted = true;
+  const startTime = Date.now();
+
+  function tick() {
+    if (spectator.roundResolved) {
+      stopSpectatorCountdown();
+      return;
+    }
+    const elapsed = Math.floor((Date.now() - startTime) / 1000);
+    const remaining = Math.max(0, ROUND_COUNTDOWN_SECS - elapsed);
+
+    const statusEl = document.getElementById("pub-spectate-status");
+    if (statusEl) {
+      statusEl.innerHTML = `<div class="status-dot live"></div><span id="pub-spectate-status-text">Waiting for picks &nbsp;<span class="countdown-badge ${remaining <= 3 ? "urgent" : ""}">${remaining}s</span></span>`;
+    }
+    if (remaining <= 0) stopSpectatorCountdown();
+  }
+
+  tick();
+  spectator.countdownInterval = setInterval(tick, 500);
+}
+
+function stopSpectatorCountdown() {
+  if (spectator.countdownInterval) {
+    clearInterval(spectator.countdownInterval);
+    spectator.countdownInterval = null;
+  }
+}
+
+function resetSpectatorCountdown() {
+  stopSpectatorCountdown();
+  spectator.countdownStarted = false;
+}
+
+async function joinAsSpectator() {
+  const code = document.getElementById("spectate-join-code").value.trim().toUpperCase();
+  if (code.length !== 4) {
+    showMsg("spectate-join-msg", "Enter a 4-character room code.", "error");
+    return;
+  }
+
+  try {
+    const res = await databases.listDocuments(DATABASE_ID, ROOMS_COLLECTION, [Query.equal("code", code)]);
+    if (!res.documents.length) {
+      showMsg("spectate-join-msg", "Room not found. Check the code!", "error");
+      return;
+    }
+
+    const room = res.documents[0];
+    if (room.status !== "playing") {
+      showMsg("spectate-join-msg", room.status === "waiting" ? "Game hasn't started yet." : "That game has ended.", "error");
+      return;
+    }
+
+    spectator.roomId = room.$id;
+    spectator.roomDoc = room;
+    spectator.currentRound = room.round || 1;
+    spectator.roundResolved = false;
+
+    renderPublicSpectate(room);
+    await renderPublicSpectateMoves(room, true /* initial load — show history only */);
+    showScreen("screen-public-spectate");
+    subscribePublicSpectate(room.$id);
+  } catch (e) {
+    showMsg("spectate-join-msg", "Error: " + (e.message || e), "error");
+  }
+}
+
+function renderPublicSpectate(room) {
+  document.getElementById("pub-spectate-title").textContent = `Room ${room.code}`;
+  document.getElementById("pub-spectate-name1").textContent = room.player1 || "Player 1";
+  document.getElementById("pub-spectate-name2").textContent = room.player2 || "Player 2";
+  document.getElementById("pub-spectate-label1").textContent = room.player1 || "Player 1";
+  document.getElementById("pub-spectate-label2").textContent = room.player2 || "Player 2";
+  document.getElementById("pub-spectate-score1").textContent = room.score1 ?? 0;
+  document.getElementById("pub-spectate-score2").textContent = room.score2 ?? 0;
+  document.getElementById("pub-ready-p1-name").textContent = room.player1 || "Player 1";
+  document.getElementById("pub-ready-p2-name").textContent = room.player2 || "Player 2";
+
+  const statusText = room.status === "playing" ? `Live — Round ${room.round}` : `Game ${room.status}`;
+  document.getElementById("pub-spectate-status-text").textContent = statusText;
+
+  // Reset arena to hidden state for new round
+  resetPublicArena();
+}
+
+function resetPublicArena() {
+  const c1 = document.getElementById("pub-spectate-choice1");
+  const c2 = document.getElementById("pub-spectate-choice2");
+  c1.textContent = "❓";
+  c1.className = "arena-choice hidden";
+  c2.textContent = "❓";
+  c2.className = "arena-choice hidden";
+
+  document.getElementById("pub-ready-p1-icon").textContent = "⏳";
+  document.getElementById("pub-ready-p2-icon").textContent = "⏳";
+  document.getElementById("pub-spectate-result").style.display = "none";
+  spectator.roundResolved = false;
+}
+
+// Renders the moves table (past rounds) and handles live-round reveal logic.
+// isInitialLoad = true skips revealing the current unresolved round.
+async function renderPublicSpectateMoves(room, isInitialLoad = false) {
+  try {
+    const res = await databases.listDocuments(DATABASE_ID, MOVES_COLLECTION, [
+      Query.equal("room", room.$id),
+      Query.orderAsc("round"),
+      Query.limit(200),
+    ]);
+
+    // Group by round
+    const rounds = {};
+    res.documents.forEach((m) => {
+      if (!rounds[m.round]) rounds[m.round] = {};
+      const isP1 = m.playerId === room.player1id;
+      rounds[m.round][isP1 ? "p1" : "p2"] = m.choice;
+    });
+
+    const currentRound = room.round || 1;
+
+    // ── Update the "locked in" readiness indicators for the current round ──
+    const liveMoves = rounds[currentRound] || {};
+    const p1Locked = !!liveMoves.p1;
+    const p2Locked = !!liveMoves.p2;
+    document.getElementById("pub-ready-p1-icon").textContent = p1Locked ? "✅" : "⏳";
+    document.getElementById("pub-ready-p2-icon").textContent = p2Locked ? "✅" : "⏳";
+
+    // Start countdown as soon as at least one player locks in (but not both yet)
+    if ((p1Locked || p2Locked) && !(p1Locked && p2Locked)) {
+      startSpectatorCountdown();
+    }
+
+    // ── Reveal arena + result if both moves are in for the current round ──
+    if (p1Locked && p2Locked && !spectator.roundResolved) {
+      spectator.roundResolved = true;
+      stopSpectatorCountdown();
+
+      const c1 = document.getElementById("pub-spectate-choice1");
+      const c2 = document.getElementById("pub-spectate-choice2");
+      c1.textContent = EMOJI[liveMoves.p1];
+      c1.className = "arena-choice";
+      c2.textContent = EMOJI[liveMoves.p2];
+      c2.className = "arena-choice";
+
+      // Determine result
+      let resultClass, resultTitle, resultSub;
+      if (liveMoves.p1 === liveMoves.p2) {
+        resultClass = "draw";
+        resultTitle = "DRAW!";
+        resultSub = `Both chose ${EMOJI[liveMoves.p1]}`;
+      } else if (BEATS[liveMoves.p1] === liveMoves.p2) {
+        resultClass = "win";
+        resultTitle = `${(room.player1 || "Player 1").toUpperCase()} WINS!`;
+        resultSub = `${EMOJI[liveMoves.p1]} beats ${EMOJI[liveMoves.p2]}`;
+      } else {
+        resultClass = "lose";
+        resultTitle = `${(room.player2 || "Player 2").toUpperCase()} WINS!`;
+        resultSub = `${EMOJI[liveMoves.p2]} beats ${EMOJI[liveMoves.p1]}`;
+      }
+
+      const rd = document.getElementById("pub-spectate-result");
+      rd.className = `result-display ${resultClass}`;
+      rd.style.display = "";
+      document.getElementById("pub-spectate-result-title").textContent = resultTitle;
+      document.getElementById("pub-spectate-result-sub").textContent = resultSub;
+    }
+
+    // ── Build past-rounds history table (exclude current unresolved round) ──
+    const pastRounds = Object.entries(rounds).filter(([round]) => {
+      const r = parseInt(round);
+      if (r < currentRound) return true;
+      // Include current round in history only if both moves are in
+      return r === currentRound && rounds[round].p1 && rounds[round].p2;
+    });
+
+    const movesEl = document.getElementById("pub-spectate-moves");
+
+    if (!pastRounds.length) {
+      movesEl.innerHTML = `<div class="admin-empty" style="padding:1rem;">No completed rounds yet.</div>`;
+      return;
+    }
+
+    const rows = pastRounds.map(([round, moves]) => {
+      const p1choice = EMOJI[moves.p1] || "—";
+      const p2choice = EMOJI[moves.p2] || "—";
+
+      let result = "—";
+      if (moves.p1 && moves.p2) {
+        if (moves.p1 === moves.p2) result = "Draw";
+        else if (BEATS[moves.p1] === moves.p2) result = `${room.player1 || "P1"} wins`;
+        else result = `${room.player2 || "P2"} wins`;
+      }
+
+      return `
+        <div class="moves-row">
+          <div class="moves-round">${round}</div>
+          <div>${p1choice} ${moves.p1 || "—"}</div>
+          <div>${p2choice} ${moves.p2 || "—"}</div>
+          <div style="color:var(--muted); font-size:0.65rem;">${result}</div>
+        </div>
+      `;
+    });
+
+    movesEl.innerHTML = `
+      <div class="moves-row header">
+        <div>RND</div>
+        <div>${room.player1 || "P1"}</div>
+        <div>${room.player2 || "P2"}</div>
+        <div>Result</div>
+      </div>
+      ${rows.join("")}
+    `;
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+function subscribePublicSpectate(roomId) {
+  if (spectator.roomUnsub) spectator.roomUnsub();
+  if (spectator.movesUnsub) spectator.movesUnsub();
+
+  // Watch room doc for round/score/status changes
+  spectator.roomUnsub = client.subscribe(
+    `databases.${DATABASE_ID}.collections.${ROOMS_COLLECTION}.documents.${roomId}`,
+    async ({ payload }) => {
+      if (!payload) return;
+      spectator.roomDoc = payload;
+
+      // If the round advanced, reset the arena for the new round
+      if (payload.round > spectator.currentRound) {
+        spectator.currentRound = payload.round;
+        spectator.roundResolved = false;
+        resetSpectatorCountdown();
+        renderPublicSpectate(payload);
+      } else {
+        // Just update scores / status text
+        document.getElementById("pub-spectate-score1").textContent = payload.score1 ?? 0;
+        document.getElementById("pub-spectate-score2").textContent = payload.score2 ?? 0;
+        document.getElementById("pub-spectate-status-text").textContent =
+          payload.status === "playing" ? `Live — Round ${payload.round}` : `Game ${payload.status}`;
+      }
+
+      if (payload.status === "abandoned") {
+        stopSpectatorCountdown();
+        document.getElementById("pub-spectate-status").innerHTML =
+          `<div class="status-dot done"></div><span class="opponent-left-text">😢 A player left — game ended</span>`;
+        document.getElementById("pub-spectate-status").classList.add("status-abandoned");
+      } else if (payload.status !== "playing") {
+        document.getElementById("pub-spectate-status").innerHTML = `<div class="status-dot done"></div><span>Game ended</span>`;
+      }
+
+      await renderPublicSpectateMoves(payload);
+    },
+  );
+
+  // Watch moves collection for new picks
+  spectator.movesUnsub = client.subscribe(`databases.${DATABASE_ID}.collections.${MOVES_COLLECTION}.documents`, async ({ payload }) => {
+    if (!payload) return;
+    if (payload.room?.$id !== roomId) return;
+    const room = spectator.roomDoc;
+    if (room) await renderPublicSpectateMoves(room);
+  });
+}
+
+function leavePublicSpectate() {
+  if (spectator.roomUnsub) {
+    spectator.roomUnsub();
+    spectator.roomUnsub = null;
+  }
+  if (spectator.movesUnsub) {
+    spectator.movesUnsub();
+    spectator.movesUnsub = null;
+  }
+  stopSpectatorCountdown();
+  spectator.roomId = null;
+  spectator.roomDoc = null;
+  spectator.countdownStarted = false;
+  document.getElementById("spectate-join-code").value = "";
+  showScreen("screen-home");
 }
 
 // ══════════════════════════════════════════════════════════════

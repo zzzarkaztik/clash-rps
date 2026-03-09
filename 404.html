@@ -31,7 +31,8 @@
           </div>
           <button class="btn btn-primary" onclick="goToLobby()">Continue →</button>
         </div>
-        <div class="text-center mt-2">
+        <div class="text-center mt-2" style="display: flex; gap: 0.75rem; justify-content: center;">
+          <button class="btn btn-ghost" style="width: auto" onclick="showScreen('screen-spectate-join')">👁 Watch</button>
           <button class="btn btn-ghost" style="width: auto" onclick="showScreen('screen-admin-login')">Admin ⚙️</button>
         </div>
       </div>
@@ -158,6 +159,98 @@
               <button class="btn btn-primary" onclick="nextRound()">Next Round ▶</button>
             </div>
           </div>
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════════════════════ -->
+      <!-- SPECTATOR SCREEN (Public)                      -->
+      <!-- ═══════════════════════════════════════════════ -->
+
+      <!-- SCREEN: Spectate Join -->
+      <div id="screen-spectate-join" class="screen">
+        <div class="back-row">
+          <button class="btn btn-ghost" onclick="showScreen('screen-home')">← Back</button>
+          <span class="spectator-badge">SPECTATOR</span>
+        </div>
+
+        <div class="card spectator-card">
+          <div class="card-title">Watch a Game</div>
+          <p class="text-muted" style="margin-bottom: 1rem">Enter a room code to watch a live match. Moves are hidden until both players have chosen.</p>
+          <div class="field">
+            <label>Room Code</label>
+            <input
+              type="text"
+              id="spectate-join-code"
+              placeholder="e.g. XK9A"
+              maxlength="4"
+              style="text-transform: uppercase; letter-spacing: 0.3em; font-size: 1.2rem"
+              onkeydown="if (event.key === 'Enter') joinAsSpectator();" />
+          </div>
+          <div id="spectate-join-msg" class="message" style="display: none"></div>
+          <button class="btn btn-spectator" onclick="joinAsSpectator()">Watch Live 👁</button>
+        </div>
+      </div>
+
+      <!-- SCREEN: Public Spectate View -->
+      <div id="screen-public-spectate" class="screen">
+        <div class="back-row">
+          <button class="btn btn-ghost" onclick="leavePublicSpectate()">← Leave</button>
+          <span class="spectator-badge">SPECTATING LIVE</span>
+        </div>
+
+        <div class="card spectator-card">
+          <div class="card-title" id="pub-spectate-title">Room ----</div>
+
+          <div class="score-row">
+            <div class="score-item">
+              <div class="score-num" id="pub-spectate-score1">0</div>
+              <div class="score-name" id="pub-spectate-name1">Player 1</div>
+            </div>
+            <div class="score-divider">—</div>
+            <div class="score-item">
+              <div class="score-num" id="pub-spectate-score2">0</div>
+              <div class="score-name" id="pub-spectate-name2">Player 2</div>
+            </div>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="arena">
+            <div class="arena-player">
+              <div class="arena-choice hidden" id="pub-spectate-choice1">❓</div>
+              <div class="arena-name" id="pub-spectate-label1">Player 1</div>
+            </div>
+            <div class="arena-vs">VS</div>
+            <div class="arena-player">
+              <div class="arena-choice hidden" id="pub-spectate-choice2">❓</div>
+              <div class="arena-name" id="pub-spectate-label2">Player 2</div>
+            </div>
+          </div>
+
+          <div id="pub-spectate-status" class="status-bar">
+            <div class="status-dot live"></div>
+            <span id="pub-spectate-status-text">Watching live...</span>
+          </div>
+
+          <div id="pub-spectate-readiness" class="spectate-readiness">
+            <div class="ready-pip" id="pub-ready-p1">
+              <span id="pub-ready-p1-name">Player 1</span>
+              <span id="pub-ready-p1-icon">⏳</span>
+            </div>
+            <div class="ready-divider">·</div>
+            <div class="ready-pip" id="pub-ready-p2">
+              <span id="pub-ready-p2-name">Player 2</span>
+              <span id="pub-ready-p2-icon">⏳</span>
+            </div>
+          </div>
+
+          <div id="pub-spectate-result" class="result-display" style="display: none">
+            <div class="result-title" id="pub-spectate-result-title">—</div>
+            <div class="result-sub" id="pub-spectate-result-sub"></div>
+          </div>
+
+          <div class="card-title" style="margin-top: 1rem; font-size: 1rem">Round History</div>
+          <div id="pub-spectate-moves" class="moves-table"></div>
         </div>
       </div>
 
