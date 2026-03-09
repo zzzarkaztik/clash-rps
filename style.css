@@ -281,6 +281,21 @@ input[type="text"]::placeholder {
   color: white;
 }
 
+.btn-ghost-1 {
+  background: transparent;
+  color: var(--spectator);
+  border: 1px solid var(--border);
+  font-size: 0.9rem;
+  padding: 0.5rem 1rem;
+  width: auto;
+  margin-top: 0;
+}
+
+.btn-ghost-1:hover {
+  background: var(--spectator);
+  color: white;
+}
+
 /* Room code display */
 .room-code-display {
   background: var(--bg);
