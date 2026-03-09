@@ -1021,3 +1021,91 @@ input[type="text"]::placeholder {
   cursor: not-allowed;
   transform: none;
 }
+
+/* Dialog overlay style */
+
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  backdrop-filter: blur(4px);
+}
+
+.dialog-box {
+  background: var(--surface);
+  border: 1px solid rgba(255, 60, 95, 0.4);
+  border-radius: 12px;
+  padding: 1.75rem;
+  width: min(420px, 90vw);
+  position: relative;
+  animation: result-in 0.2s ease-out;
+}
+
+.dialog-box::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--danger), transparent);
+  border-radius: 12px 12px 0 0;
+}
+
+.dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.dialog-title {
+  font-family: "Bebas Neue", sans-serif;
+  font-size: 1.4rem;
+  letter-spacing: 0.1em;
+  color: var(--danger);
+}
+
+.dialog-close {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 6px;
+  width: 28px;
+  height: 28px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    border-color 0.15s,
+    color 0.15s;
+}
+
+.dialog-close:hover {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.dialog-body {
+  font-size: 0.78rem;
+  color: var(--muted);
+  line-height: 1.6;
+  margin-bottom: 1.5rem;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6rem;
+}
+
+.dialog-actions .btn {
+  width: auto;
+  margin-top: 0;
+}

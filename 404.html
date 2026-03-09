@@ -61,7 +61,8 @@
               placeholder="e.g. XK9A"
               maxlength="4"
               style="text-transform: uppercase; letter-spacing: 0.3em; font-size: 1.2rem"
-              onkeydown="if (event.key === 'Enter') joinRoom();" />
+              onkeydown="if (event.key === 'Enter') joinRoom();"
+              onpaste="extractCodeFromPaste(event, this)" />
           </div>
           <button class="btn btn-secondary" onclick="joinRoom()">Join Room</button>
         </div>
@@ -189,7 +190,8 @@
               placeholder="e.g. XK9A"
               maxlength="4"
               style="text-transform: uppercase; letter-spacing: 0.3em; font-size: 1.2rem"
-              onkeydown="if (event.key === 'Enter') joinAsSpectator();" />
+              onkeydown="if (event.key === 'Enter') joinAsSpectator();"
+              onpaste="extractCodeFromPaste(event, this)" />
           </div>
           <div id="spectate-join-msg" class="message" style="display: none"></div>
           <button class="btn btn-spectator" onclick="joinAsSpectator()">Watch Live 👁</button>
@@ -370,7 +372,39 @@
 
           <div id="spectate-msg" class="message" style="display: none"></div>
           <div class="divider"></div>
-          <button class="btn btn-danger" onclick="adminEndRoom()">⛔ Force End Room</button>
+          <button class="btn btn-danger" onclick="showForceEndDialog()">⛔ Force End Room</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Dashboard Force End Dialog -->
+    <div id="dash-force-end-dialog" class="dialog-overlay" style="display: none" onclick="hideDashForceEndDialog(event)">
+      <div class="dialog-box">
+        <div class="dialog-header">
+          <span class="dialog-title" id="dash-force-end-label">End room?</span>
+          <button class="dialog-close" onclick="hideDashForceEndDialog()">✕</button>
+        </div>
+        <p class="dialog-body">This will immediately end the game for both players and notify them that an admin ended the session.</p>
+        <div class="dialog-actions">
+          <button class="btn btn-ghost btn-sm" onclick="hideDashForceEndDialog()">Cancel</button>
+          <button class="btn btn-danger btn-sm" onclick="confirmDashForceEnd()">Confirm</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Force End Confirmation Dialog -->
+    <div id="force-end-dialog" class="dialog-overlay" style="display: none" onclick="hideForceEndDialog(event)">
+      <div class="dialog-box">
+        <div class="dialog-header">
+          <span class="dialog-title">Force End Room</span>
+          <button class="dialog-close" onclick="hideForceEndDialog()">✕</button>
+        </div>
+        <p class="dialog-body">
+          This will immediately end the game for both players. They will be notified that an admin ended the session.
+        </p>
+        <div class="dialog-actions">
+          <button class="btn btn-ghost btn-sm" onclick="hideForceEndDialog()">Cancel</button>
+          <button class="btn btn-danger btn-sm" onclick="adminEndRoom()">⛔ Confirm Force End</button>
         </div>
       </div>
     </div>

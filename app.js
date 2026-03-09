@@ -20,7 +20,7 @@ const MOVES_COLLECTION = "moves";
     - score1      (integer, default: 0)
     - score2      (integer, default: 0)
     - round       (integer, default: 1)
-    - roundReady  (integer, default: 0)  ← NEW: tracks how many players confirmed next round
+    - forceEnded  (boolean, default: false) ← NEW  ← NEW: tracks how many players confirmed next round
 
   MOVES Collection attributes:
     - room        (relationship → rooms, many-to-one, key: "room")
@@ -61,7 +61,7 @@ let state = {
   opponentId: "",
   score: { me: 0, opp: 0 },
   roundResolved: false,
-  readyConfirmed: false, // I have clicked "Next Round" this round
+  iReadyForRound: false, // I have clicked "Next Round" this round
   realtimeUnsub: null,
   waitingUnsub: null,
   roomWatchUnsub: null, // watches for opponent leaving
@@ -79,6 +79,8 @@ let admin = {
   spectateRoomId: null,
   spectateUnsub: null,
   spectateMovesUnsub: null,
+  pendingDeleteId: null,
+  pendingDeleteCode: null,
 };
 
 // ─── Navigation ───────────────────────────────────────────────
@@ -366,7 +368,7 @@ function resetChoiceUI(startImmediately = false) {
     b.disabled = !startImmediately; // locked until round confirmed
   });
   state.roundResolved = false;
-  state.readyConfirmed = false;
+  state.iReadyForRound = false;
   state.myChoice = null;
   stopRoundCountdown();
 
@@ -540,6 +542,24 @@ async function handleCountdownExpired() {
 
 // ─── Opponent Left Banner ──────────────────────────────────────
 
+function showAdminEndedBanner() {
+  stopRoundCountdown();
+  const statusEl = document.getElementById("game-status");
+  if (statusEl) {
+    statusEl.innerHTML = `<div class="status-dot done"></div><span class="opponent-left-text">🛑 An admin has ended this room.</span>`;
+    statusEl.classList.add("status-abandoned");
+  }
+  document.querySelectorAll(".choice-btn").forEach((b) => {
+    b.disabled = true;
+  });
+  // Also disable result next button if visible
+  const nextBtn = document.getElementById("result-next-btn");
+  if (nextBtn) {
+    nextBtn.disabled = true;
+    nextBtn.textContent = "Room Ended";
+  }
+}
+
 function showOpponentLeftBanner(name) {
   stopRoundCountdown();
   const statusEl = document.getElementById("game-status");
@@ -563,15 +583,21 @@ function subscribeRoomWatch() {
         showOpponentLeftBanner(state.opponentName);
         return;
       }
+      if (payload.status === "admin-ended" && state.roomDocId) {
+        showAdminEndedBanner();
+        return;
+      }
 
-      // Opponent marked ready — update hint text for the player who clicked first
-      if (payload.roundReady === 1 && !state.readyConfirmed) {
+      // Opponent signalled ready — update hint for player who clicked first
+      const myReadyStatus = state.isPlayer1 ? "p1-ready" : "p2-ready";
+      const oppReadyStatus = state.isPlayer1 ? "p2-ready" : "p1-ready";
+      if (payload.status === oppReadyStatus && !state.iReadyForRound) {
         const el = document.getElementById("round-ready-text");
         if (el) el.textContent = "Opponent is ready! Click Ready ✓";
       }
 
-      // Round advanced — both confirmed, start the new round on both clients
-      if (payload.round > state.currentRound && payload.status === "playing") {
+      // Both confirmed — start the new round
+      if (payload.status === "room-ready") {
         enterNextRound(payload.round);
       }
     },
@@ -615,7 +641,7 @@ function resolveRound(myChoice, oppChoice) {
   stopRoundCountdown();
 
   // Reset confirmation UI so Next Round button is fresh
-  state.readyConfirmed = false;
+  state.iReadyForRound = false;
   const nextBtn = document.getElementById("result-next-btn");
   if (nextBtn) {
     nextBtn.disabled = false;
@@ -660,7 +686,6 @@ function resolveRound(myChoice, oppChoice) {
       .updateDocument(DATABASE_ID, ROOMS_COLLECTION, state.roomDocId, {
         score1: state.score.me,
         score2: state.score.opp,
-        roundReady: 0, // always reset so next confirmation starts clean
       })
       .catch(console.error);
   }
@@ -668,48 +693,45 @@ function resolveRound(myChoice, oppChoice) {
 
 // Called when user clicks "Next Round" on the result screen
 async function nextRound() {
-  if (state.readyConfirmed) return; // already clicked
-  state.readyConfirmed = true;
+  if (state.iReadyForRound) return; // already clicked
+  state.iReadyForRound = true;
 
-  // Lock the button and show waiting status
   const btn = document.getElementById("result-next-btn");
   if (btn) {
     btn.disabled = true;
     btn.textContent = "Waiting...";
   }
 
+  const myReadyStatus = state.isPlayer1 ? "p1-ready" : "p2-ready";
+  const oppReadyStatus = state.isPlayer1 ? "p2-ready" : "p1-ready";
+
   try {
     const room = await databases.getDocument(DATABASE_ID, ROOMS_COLLECTION, state.roomDocId);
 
-    // Guard: if round already advanced (e.g. other player was faster), just enter it
-    if (room.round > state.currentRound) {
+    // Guard: already advanced (realtime was faster than our click)
+    if (room.status === "room-ready" || room.round > state.currentRound) {
       enterNextRound(room.round);
       return;
     }
 
-    const newReady = (room.roundReady || 0) + 1;
-
-    if (newReady >= 2) {
-      // Both ready — player who gets here second advances the round
+    if (room.status === oppReadyStatus) {
+      // Opponent already waiting — we're second, kick off the new round
       await databases.updateDocument(DATABASE_ID, ROOMS_COLLECTION, state.roomDocId, {
-        roundReady: 0,
+        status: "room-ready",
         round: room.round + 1,
       });
-      // The realtime event from subscribeRoomWatch will call enterNextRound on both
-      // But also call it locally in case realtime is slow
-      enterNextRound(room.round + 1);
+      enterNextRound(room.round + 1); // local call in case realtime is slow
     } else {
+      // We're first — signal our readiness
       await databases.updateDocument(DATABASE_ID, ROOMS_COLLECTION, state.roomDocId, {
-        roundReady: newReady,
+        status: myReadyStatus,
       });
-      // Show waiting for opponent
       const readyStatus = document.getElementById("result-ready-status");
       if (readyStatus) readyStatus.textContent = "Waiting for opponent...";
     }
   } catch (e) {
     console.error("nextRound error:", e);
-    state.readyConfirmed = false; // allow retry
-    const btn = document.getElementById("result-next-btn");
+    state.iReadyForRound = false;
     if (btn) {
       btn.disabled = false;
       btn.textContent = "Next Round ▶";
@@ -717,13 +739,22 @@ async function nextRound() {
   }
 }
 
-// Called when room.round increments — confirmed by both players
+// Called when both players confirmed — start the new round
 function enterNextRound(newRound) {
-  if (newRound <= state.currentRound) return; // already on this round or newer, ignore duplicate
+  if (newRound <= state.currentRound) return; // guard against duplicate calls
   state.currentRound = newRound;
   state.myChoice = null;
   document.getElementById("game-round-label").textContent = `Round ${state.currentRound}`;
-  resetChoiceUI(true); // start countdown immediately — both confirmed
+  resetChoiceUI(true); // start countdown immediately
+
+  // Player1 restores status to "playing" so the room is clean for the next confirm cycle
+  if (state.isPlayer1) {
+    databases
+      .updateDocument(DATABASE_ID, ROOMS_COLLECTION, state.roomDocId, {
+        status: "playing",
+      })
+      .catch(console.error);
+  }
 }
 
 // ─── Cleanup ───────────────────────────────────────────────────
@@ -1021,6 +1052,11 @@ function subscribePublicSpectate(roomId) {
         document.getElementById("pub-spectate-status").innerHTML =
           `<div class="status-dot done"></div><span class="opponent-left-text">😢 A player left — game ended</span>`;
         document.getElementById("pub-spectate-status").classList.add("status-abandoned");
+      } else if (payload.status === "admin-ended") {
+        stopSpectatorCountdown();
+        document.getElementById("pub-spectate-status").innerHTML =
+          `<div class="status-dot done"></div><span class="opponent-left-text">🛑 Room ended by admin</span>`;
+        document.getElementById("pub-spectate-status").classList.add("status-abandoned");
       } else if (payload.status !== "playing") {
         document.getElementById("pub-spectate-status").innerHTML = `<div class="status-dot done"></div><span>Game ended</span>`;
       }
@@ -1127,8 +1163,15 @@ async function adminRefreshRooms() {
       .map((room) => {
         const p1 = room.player1 || "—";
         const p2 = room.player2 || "Waiting...";
-        const statusClass = room.status === "playing" ? "playing" : room.status === "waiting" ? "waiting" : "abandoned";
+        const statusClass = ["playing", "p1-ready", "p2-ready", "room-ready"].includes(room.status)
+          ? "playing"
+          : room.status === "waiting"
+            ? "waiting"
+            : room.status === "admin-ended"
+              ? "admin-ended"
+              : "abandoned";
         const canSpectate = room.status === "playing";
+        const canReview = room.status === "abandoned" || room.status === "admin-ended";
 
         return `
         <div class="admin-room-row">
@@ -1140,6 +1183,7 @@ async function adminRefreshRooms() {
           <div class="admin-room-status ${statusClass}">${room.status}</div>
           <div class="admin-room-actions">
             ${canSpectate ? `<button class="btn btn-secondary btn-sm" onclick="adminSpectate('${room.$id}')">👁 Watch</button>` : ""}
+            ${canReview ? `<button class="btn btn-ghost btn-sm" onclick="adminSpectate('${room.$id}')">📋 Review</button>` : ""}
             <button class="btn btn-danger btn-sm" onclick="adminDeleteRoom('${room.$id}', '${room.code}')">✕</button>
           </div>
         </div>
@@ -1154,16 +1198,31 @@ async function adminRefreshRooms() {
 // ─── Admin Delete Room ─────────────────────────────────────────
 
 async function adminDeleteRoom(roomId, code) {
-  if (!confirm(`Force-end room ${code}? This will mark it as abandoned.`)) return;
+  // Store pending target and show dashboard confirm dialog
+  admin.pendingDeleteId = roomId;
+  admin.pendingDeleteCode = code;
+  document.getElementById("dash-force-end-label").textContent = `End room ${code}?`;
+  document.getElementById("dash-force-end-dialog").style.display = "flex";
+}
 
+async function confirmDashForceEnd() {
+  document.getElementById("dash-force-end-dialog").style.display = "none";
+  const roomId = admin.pendingDeleteId;
+  admin.pendingDeleteId = null;
+  admin.pendingDeleteCode = null;
   try {
     await databases.updateDocument(DATABASE_ID, ROOMS_COLLECTION, roomId, {
-      status: "abandoned",
+      status: "admin-ended",
     });
     adminRefreshRooms();
   } catch (e) {
     showMsg("admin-msg", "Failed to end room: " + e.message, "error");
   }
+}
+
+function hideDashForceEndDialog(e) {
+  if (e && e.target !== document.getElementById("dash-force-end-dialog")) return;
+  document.getElementById("dash-force-end-dialog").style.display = "none";
 }
 
 // ─── Admin Spectate ────────────────────────────────────────────
@@ -1291,17 +1350,45 @@ function stopSpectating() {
   adminRefreshRooms();
 }
 
+function showForceEndDialog() {
+  document.getElementById("force-end-dialog").style.display = "flex";
+}
+
+function hideForceEndDialog(e) {
+  // If called from overlay click, only close if clicking the backdrop itself
+  if (e && e.target !== document.getElementById("force-end-dialog")) return;
+  document.getElementById("force-end-dialog").style.display = "none";
+}
+
 async function adminEndRoom() {
   if (!admin.spectateRoomId) return;
-  if (!confirm("Force-end this room?")) return;
-
+  document.getElementById("force-end-dialog").style.display = "none";
   try {
     await databases.updateDocument(DATABASE_ID, ROOMS_COLLECTION, admin.spectateRoomId, {
-      status: "abandoned",
+      status: "admin-ended",
     });
     stopSpectating();
   } catch (e) {
     showMsg("spectate-msg", "Failed: " + e.message, "error");
+  }
+}
+
+// ─── Paste helper — extracts 4-char code from a full URL or raw code ──────────
+function extractCodeFromPaste(e, input) {
+  e.preventDefault();
+  const text = (e.clipboardData || window.clipboardData).getData("text").trim();
+  // Try to extract a 4-char alphanumeric code from the pasted text
+  // Matches the last path segment if it's a URL, otherwise the raw string
+  const match = text.match(/[A-Z0-9]{4}(?=[^A-Z0-9]|$)/i);
+  if (match) {
+    input.value = match[0].toUpperCase();
+  } else {
+    // Fallback: just take first 4 alphanumeric chars
+    const clean = text
+      .replace(/[^A-Z0-9]/gi, "")
+      .slice(0, 4)
+      .toUpperCase();
+    input.value = clean;
   }
 }
 
