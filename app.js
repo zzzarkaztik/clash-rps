@@ -18,6 +18,7 @@ const MOVES_COLLECTION = "moves";
     - score1      (integer, default: 0)
     - score2      (integer, default: 0)
     - round       (integer, default: 1)
+    - roundReady  (integer, default: 0)  ← NEW: tracks how many players confirmed next round
 
   MOVES Collection attributes:
     - room        (relationship → rooms, many-to-one, key: "room")
@@ -53,8 +54,10 @@ let state = {
   currentRound: 1,
   myChoice: null,
   opponentName: "",
+  opponentId: "",
   score: { me: 0, opp: 0 },
   roundResolved: false,
+  readyConfirmed: false, // I have clicked "Next Round" this round
   realtimeUnsub: null,
   waitingUnsub: null,
   roomWatchUnsub: null, // watches for opponent leaving
@@ -186,6 +189,7 @@ async function joinRoom() {
     state.roomDocId = room.$id;
     state.isPlayer1 = false;
     state.opponentName = room.player1;
+    state.opponentId = room.player1id || "";
     state.currentRound = room.round || 1;
     state.score = { me: room.score2, opp: room.score1 };
     enterWaitingRoom();
@@ -253,6 +257,7 @@ function subscribeWaiting() {
           state.waitingUnsub = null;
         }
         state.opponentName = state.isPlayer1 ? payload.player2 : payload.player1;
+        state.opponentId = state.isPlayer1 ? payload.player2id || "" : payload.player1id || "";
         state.currentRound = payload.round || 1;
         enterGame();
       }
@@ -268,6 +273,7 @@ async function refreshRoomDoc() {
     renderPlayers(room);
     if (room.status === "playing") {
       state.opponentName = state.isPlayer1 ? room.player2 : room.player1;
+      state.opponentId = state.isPlayer1 ? room.player2id || "" : room.player1id || "";
       state.currentRound = room.round || 1;
       if (state.waitingUnsub) {
         state.waitingUnsub();
@@ -311,7 +317,7 @@ function enterGame() {
   document.getElementById("score-opp-name").textContent = state.opponentName || "Opponent";
   document.getElementById("arena-opp-name").textContent = state.opponentName || "Opponent";
   updateScoreDisplay();
-  resetChoiceUI();
+  resetChoiceUI(true); // round 1: both confirmed via startGame
   showScreen("screen-game");
   subscribeGame();
   subscribeRoomWatch();
@@ -322,18 +328,42 @@ function updateScoreDisplay() {
   document.getElementById("score-opp").textContent = state.score.opp;
 }
 
-function resetChoiceUI() {
+function resetChoiceUI(startImmediately = false) {
   document.getElementById("arena-you").textContent = "🤔";
   document.getElementById("arena-opp").textContent = "❓";
   document.getElementById("arena-opp").className = "arena-choice hidden";
   document.getElementById("choice-section").style.display = "";
   document.getElementById("result-section").style.display = "none";
+  const statusBar = document.getElementById("game-status");
+  statusBar.className = "status-bar";
   document.querySelectorAll(".choice-btn").forEach((b) => {
     b.classList.remove("selected");
-    b.disabled = false;
+    b.disabled = !startImmediately; // locked until round confirmed
   });
   state.roundResolved = false;
-  document.getElementById("game-status").innerHTML = `<div class="status-dot waiting"></div><span>Make your choice!</span>`;
+  state.readyConfirmed = false;
+  state.myChoice = null;
+  stopRoundCountdown();
+
+  if (startImmediately) {
+    // Round 1 or any round where both are confirmed — start right away
+    startRoundCountdown();
+    setGameStatus(`<div class="status-dot waiting"></div><span>Make your choice!</span>`);
+  } else {
+    // Show "ready?" banner — countdown won't start until both confirm
+    setGameStatus(`
+      <div class="status-dot waiting"></div>
+      <span id="round-ready-text">Waiting for both players...</span>
+      <button class="btn-ready-round" onclick="nextRound()" id="btn-ready">✓ Ready</button>
+    `);
+  }
+}
+
+function setGameStatus(html) {
+  const el = document.getElementById("game-status");
+  if (el && !el.classList.contains("status-abandoned")) {
+    el.innerHTML = html;
+  }
 }
 
 async function makeChoice(choice) {
@@ -345,10 +375,7 @@ async function makeChoice(choice) {
     b.disabled = true;
     if (b.dataset.choice === choice) b.classList.add("selected");
   });
-  document.getElementById("game-status").innerHTML =
-    `<div class="status-dot waiting"></div><span>Waiting for opponent <span class="waiting-dots"><span>.</span><span>.</span><span>.</span></span></span>`;
-
-  startRoundCountdown();
+  // Countdown keeps running — tick() updates the label to "Waiting for opponent Xs"
 
   const playerId = state.playerId;
   const round = state.currentRound;
@@ -375,30 +402,41 @@ async function makeChoice(choice) {
 }
 
 // ─── Round Countdown ───────────────────────────────────────────
+// Starts at the beginning of every round for BOTH players simultaneously.
+// At 0s: if I haven't picked → auto-pick random (I lose). If I picked and
+// opponent hasn't → only player1 writes a forfeit move so opponent loses.
 
 const ROUND_COUNTDOWN_SECS = 10;
 
 function startRoundCountdown() {
   stopRoundCountdown();
   state.countdownStart = Date.now();
-  let remaining = ROUND_COUNTDOWN_SECS;
 
   function tick() {
     if (state.roundResolved) {
       stopRoundCountdown();
       return;
     }
-    const elapsed = Math.floor((Date.now() - state.countdownStart) / 1000);
-    remaining = ROUND_COUNTDOWN_SECS - elapsed;
-    if (remaining < 0) remaining = 0;
 
-    const statusEl = document.getElementById("game-status");
-    if (statusEl) {
-      statusEl.innerHTML = `<div class="status-dot waiting"></div><span>Waiting for opponent &nbsp;<span class="countdown-badge ${remaining <= 3 ? "urgent" : ""}">${remaining}s</span></span>`;
+    const elapsed = Math.floor((Date.now() - state.countdownStart) / 1000);
+    const remaining = Math.max(0, ROUND_COUNTDOWN_SECS - elapsed);
+    const urgentClass = remaining <= 3 ? "urgent" : "";
+
+    if (!document.getElementById("game-status")?.classList.contains("status-abandoned")) {
+      if (state.myChoice) {
+        setGameStatus(
+          `<div class="status-dot waiting"></div><span>Waiting for opponent &nbsp;<span class="countdown-badge ${urgentClass}">${remaining}s</span></span>`,
+        );
+      } else {
+        setGameStatus(
+          `<div class="status-dot waiting"></div><span>Make your choice! &nbsp;<span class="countdown-badge ${urgentClass}">${remaining}s</span></span>`,
+        );
+      }
     }
 
     if (remaining <= 0) {
       stopRoundCountdown();
+      handleCountdownExpired();
     }
   }
 
@@ -413,6 +451,68 @@ function stopRoundCountdown() {
   }
 }
 
+// When countdown hits 0:
+// • I haven't picked → auto-pick random, submit it, I lose.
+// • I picked, opponent hasn't → player1 submits a guaranteed-losing forfeit
+//   move for the opponent so resolveRound fires correctly on both sides.
+// Called when the 10s expires. Only player1 acts as the authority and writes
+// any missing moves to the DB. Player2 just waits for the realtime event.
+// Rules:
+//   • Both picked   → already resolved by checkBothMoves, this is a no-op.
+//   • I picked, opp didn't → opp gets a move that loses to mine.
+//   • Opp picked, I didn't → I get a move that loses to opp's.
+//   • Neither picked → both get rock (draw).
+async function handleCountdownExpired() {
+  if (state.roundResolved) return;
+
+  // Only player1 writes forfeit moves to avoid duplicate DB writes
+  if (!state.isPlayer1) return;
+
+  try {
+    const res = await databases.listDocuments(DATABASE_ID, MOVES_COLLECTION, [
+      Query.equal("room", state.roomDocId),
+      Query.equal("round", state.currentRound),
+    ]);
+
+    const p1Id = state.isPlayer1 ? state.playerId : null; // player1 IS us here
+    const p1Doc = res.documents.find((d) => d.playerId === state.playerId);
+    const p2Doc = res.documents.find((d) => d.playerId !== state.playerId);
+
+    // Both already submitted — realtime was just slow, do nothing
+    if (p1Doc && p2Doc) return;
+
+    const LOSES_TO = { rock: "scissors", paper: "rock", scissors: "paper" };
+    // LOSES_TO[x] = the choice that loses when facing x
+
+    const writeMove = async (pid, choice) => {
+      await databases.createDocument(DATABASE_ID, MOVES_COLLECTION, ID.unique(), {
+        room: state.roomDocId,
+        playerId: pid,
+        choice,
+        round: state.currentRound,
+      });
+    };
+
+    if (!p1Doc && !p2Doc) {
+      // Neither picked — draw: both get rock
+      await writeMove(state.playerId, "rock");
+      // p2 id is not directly known to player1; store it in state when joining
+      if (state.opponentId) await writeMove(state.opponentId, "rock");
+    } else if (p1Doc && !p2Doc) {
+      // I (p1) picked, opponent didn't — opponent gets the losing choice
+      const losingChoice = LOSES_TO[p1Doc.choice];
+      if (state.opponentId) await writeMove(state.opponentId, losingChoice);
+    } else if (!p1Doc && p2Doc) {
+      // Opponent picked, I didn't — I get the losing choice
+      const losingChoice = LOSES_TO[p2Doc.choice];
+      await writeMove(state.playerId, losingChoice);
+    }
+    // After writes, the realtime subscription fires checkBothMoves on both clients
+  } catch (e) {
+    console.error("Timeout resolve error:", e);
+  }
+}
+
 // ─── Opponent Left Banner ──────────────────────────────────────
 
 function showOpponentLeftBanner(name) {
@@ -422,7 +522,6 @@ function showOpponentLeftBanner(name) {
     statusEl.innerHTML = `<div class="status-dot done"></div><span class="opponent-left-text">😢 ${name || "Your opponent"} left the game</span>`;
     statusEl.classList.add("status-abandoned");
   }
-  // Disable choice buttons if still showing
   document.querySelectorAll(".choice-btn").forEach((b) => {
     b.disabled = true;
   });
@@ -434,21 +533,36 @@ function subscribeRoomWatch() {
     `databases.${DATABASE_ID}.collections.${ROOMS_COLLECTION}.documents.${state.roomDocId}`,
     ({ payload }) => {
       if (!payload) return;
+
       if (payload.status === "abandoned" && state.roomDocId) {
         showOpponentLeftBanner(state.opponentName);
+        return;
+      }
+
+      // Opponent marked ready — update hint text for the player who clicked first
+      if (payload.roundReady === 1 && !state.readyConfirmed) {
+        const el = document.getElementById("round-ready-text");
+        if (el) el.textContent = "Opponent is ready! Click Ready ✓";
+      }
+
+      // Round advanced — both confirmed, start the new round on both clients
+      if (payload.round > state.currentRound && payload.status === "playing") {
+        enterNextRound(payload.round);
       }
     },
   );
 }
 
-if (state.realtimeUnsub) state.realtimeUnsub();
+function subscribeGame() {
+  if (state.realtimeUnsub) state.realtimeUnsub();
 
-state.realtimeUnsub = client.subscribe(`databases.${DATABASE_ID}.collections.${MOVES_COLLECTION}.documents`, async ({ payload }) => {
-  if (!payload) return;
-  if (payload.room?.$id !== state.roomDocId) return;
-  if (payload.round !== state.currentRound) return;
-  await checkBothMoves();
-});
+  state.realtimeUnsub = client.subscribe(`databases.${DATABASE_ID}.collections.${MOVES_COLLECTION}.documents`, async ({ payload }) => {
+    if (!payload) return;
+    if (payload.room?.$id !== state.roomDocId) return;
+    if (payload.round !== state.currentRound) return;
+    await checkBothMoves();
+  });
+}
 
 async function checkBothMoves() {
   try {
@@ -474,6 +588,16 @@ function resolveRound(myChoice, oppChoice) {
   if (state.roundResolved) return;
   state.roundResolved = true;
   stopRoundCountdown();
+
+  // Reset confirmation UI so Next Round button is fresh
+  state.readyConfirmed = false;
+  const nextBtn = document.getElementById("result-next-btn");
+  if (nextBtn) {
+    nextBtn.disabled = false;
+    nextBtn.textContent = "Next Round ▶";
+  }
+  const readyStatus = document.getElementById("result-ready-status");
+  if (readyStatus) readyStatus.textContent = "";
 
   document.getElementById("arena-opp").textContent = EMOJI[oppChoice];
   document.getElementById("arena-opp").className = "arena-choice";
@@ -511,25 +635,70 @@ function resolveRound(myChoice, oppChoice) {
       .updateDocument(DATABASE_ID, ROOMS_COLLECTION, state.roomDocId, {
         score1: state.score.me,
         score2: state.score.opp,
+        roundReady: 0, // always reset so next confirmation starts clean
       })
       .catch(console.error);
   }
 }
 
+// Called when user clicks "Next Round" on the result screen
 async function nextRound() {
-  state.currentRound++;
-  state.myChoice = null;
-  document.getElementById("game-round-label").textContent = `Round ${state.currentRound}`;
+  if (state.readyConfirmed) return; // already clicked
+  state.readyConfirmed = true;
 
-  if (state.isPlayer1) {
-    await databases
-      .updateDocument(DATABASE_ID, ROOMS_COLLECTION, state.roomDocId, {
-        round: state.currentRound,
-      })
-      .catch(console.error);
+  // Lock the button and show waiting status
+  const btn = document.getElementById("result-next-btn");
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Waiting...";
   }
 
-  resetChoiceUI();
+  try {
+    const room = await databases.getDocument(DATABASE_ID, ROOMS_COLLECTION, state.roomDocId);
+
+    // Guard: if round already advanced (e.g. other player was faster), just enter it
+    if (room.round > state.currentRound) {
+      enterNextRound(room.round);
+      return;
+    }
+
+    const newReady = (room.roundReady || 0) + 1;
+
+    if (newReady >= 2) {
+      // Both ready — player who gets here second advances the round
+      await databases.updateDocument(DATABASE_ID, ROOMS_COLLECTION, state.roomDocId, {
+        roundReady: 0,
+        round: room.round + 1,
+      });
+      // The realtime event from subscribeRoomWatch will call enterNextRound on both
+      // But also call it locally in case realtime is slow
+      enterNextRound(room.round + 1);
+    } else {
+      await databases.updateDocument(DATABASE_ID, ROOMS_COLLECTION, state.roomDocId, {
+        roundReady: newReady,
+      });
+      // Show waiting for opponent
+      const readyStatus = document.getElementById("result-ready-status");
+      if (readyStatus) readyStatus.textContent = "Waiting for opponent...";
+    }
+  } catch (e) {
+    console.error("nextRound error:", e);
+    state.readyConfirmed = false; // allow retry
+    const btn = document.getElementById("result-next-btn");
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = "Next Round ▶";
+    }
+  }
+}
+
+// Called when room.round increments — confirmed by both players
+function enterNextRound(newRound) {
+  if (newRound <= state.currentRound) return; // already on this round or newer, ignore duplicate
+  state.currentRound = newRound;
+  state.myChoice = null;
+  document.getElementById("game-round-label").textContent = `Round ${state.currentRound}`;
+  resetChoiceUI(true); // start countdown immediately — both confirmed
 }
 
 // ─── Cleanup ───────────────────────────────────────────────────
@@ -580,7 +749,7 @@ let spectator = {
 };
 
 function startSpectatorCountdown() {
-  if (spectator.countdownStarted) return;
+  if (spectator.countdownStarted) return; // idempotent — only start once per round
   spectator.countdownStarted = true;
   const startTime = Date.now();
 
@@ -644,6 +813,7 @@ async function joinAsSpectator() {
     await renderPublicSpectateMoves(room, true /* initial load — show history only */);
     showScreen("screen-public-spectate");
     subscribePublicSpectate(room.$id);
+    startSpectatorCountdown(); // start countdown for current round immediately
   } catch (e) {
     showMsg("spectate-join-msg", "Error: " + (e.message || e), "error");
   }
@@ -708,10 +878,7 @@ async function renderPublicSpectateMoves(room, isInitialLoad = false) {
     document.getElementById("pub-ready-p1-icon").textContent = p1Locked ? "✅" : "⏳";
     document.getElementById("pub-ready-p2-icon").textContent = p2Locked ? "✅" : "⏳";
 
-    // Start countdown as soon as at least one player locks in (but not both yet)
-    if ((p1Locked || p2Locked) && !(p1Locked && p2Locked)) {
-      startSpectatorCountdown();
-    }
+    // Countdown already started at round begin — no need to trigger here
 
     // ── Reveal arena + result if both moves are in for the current round ──
     if (p1Locked && p2Locked && !spectator.roundResolved) {
@@ -809,12 +976,13 @@ function subscribePublicSpectate(roomId) {
       if (!payload) return;
       spectator.roomDoc = payload;
 
-      // If the round advanced, reset the arena for the new round
+      // If the round advanced, reset the arena and start the spectator countdown
       if (payload.round > spectator.currentRound) {
         spectator.currentRound = payload.round;
         spectator.roundResolved = false;
         resetSpectatorCountdown();
         renderPublicSpectate(payload);
+        startSpectatorCountdown(); // starts immediately when round begins
       } else {
         // Just update scores / status text
         document.getElementById("pub-spectate-score1").textContent = payload.score1 ?? 0;
